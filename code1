@@ -1,0 +1,57 @@
+from airflow import DAG
+from airflow.operators.python import PythonOperator, BranchPythonOperator
+from airflow.operators.dummy import DummyOperator
+from datetime import datetime
+
+def check_condition(**kwargs):
+    """Simulate checking condition for new task generation."""
+    return "yes"  # This can be dynamic based on logic
+
+def branch_task(**kwargs):
+    """Branching logic to decide whether to run new_task or not."""
+    ti = kwargs['ti']
+    output = ti.xcom_pull(task_ids='task2')  # Get output from task2
+    return 'new_task' if output == 'yes' else 'end_task'
+
+def new_task_logic():
+    """New dynamically generated task logic."""
+    print("New task is executed")
+
+default_args = {
+    'owner': 'airflow',
+    'start_date': datetime(2024, 2, 6),
+    'catchup': False,
+}
+
+with DAG('dynamic_task_generation_dag',
+         default_args=default_args,
+         schedule_interval=None) as dag:
+
+    task1 = DummyOperator(task_id='task1')
+    task2 = PythonOperator(task_id='task2', python_callable=check_condition, provide_context=True)
+    task3 = DummyOperator(task_id='task3')
+    task4 = DummyOperator(task_id='task4')
+    task5 = DummyOperator(task_id='task5')
+    
+    branch_op = BranchPythonOperator(
+        task_id='branch_decision',
+        python_callable=branch_task,
+        provide_context=True
+    )
+
+    new_task = PythonOperator(
+        task_id="new_task",
+        python_callable=new_task_logic
+    )
+
+    end_task = DummyOperator(task_id='end_task')  # Acts as a placeholder if no new_task is generated
+
+    # Define dependencies
+    task1 >> task2 >> task3
+    task3 >> [task4, task5]  # Parallel execution
+
+    task4 >> branch_op  # Decision made after task4 completes
+    branch_op >> [new_task, end_task]  # Either new_task runs or we go to end_task
+
+    new_task >> task5  # Ensure new_task completes before task5
+
